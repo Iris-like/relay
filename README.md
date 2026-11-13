@@ -125,8 +125,8 @@ relay 0.3.2 darwin/arm64
 `relay` 仓库带 `.github/workflows/mirror.yml`：
 
 - 每小时 :17 拉取 `relay-releases` 的最新 Release
-- 已存在同 tag 就跳过
-- 只在版本不旧于现有 Latest 时打 Latest
+- 已存在同 tag 时比对正文和资产：正文变了就更新，资产名或大小变了就重传，都一样则不动
+- 只在版本不旧于现有 Latest 时打 Latest，最后再按版本号校正一次
 - **读源仓库用匿名 GitHub API**，不需要跨仓库 PAT
 - 写回本仓库用自带的 `GITHUB_TOKEN`
 

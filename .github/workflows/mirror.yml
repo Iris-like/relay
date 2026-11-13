@@ -3,6 +3,9 @@ name: mirror
 # 从 relay-releases 拉取最新 Release，在 relay 仓库建一份镜像。
 # 读源仓库用匿名 GitHub API（公开仓库，不需要跨仓库 token）；
 # 写本仓库用自带的 GITHUB_TOKEN。
+#
+# 同名 Release 已存在时不再整段跳过：正文变了就更新，资产名或大小变了就重传。
+# 否则源仓库改了说明（比如补写），镜像仓库会一直停在旧正文。
 
 on:
   schedule:
@@ -37,26 +40,47 @@ jobs:
           open("/tmp/notes.md", "w").write(d.get("body") or "")
           with open("/tmp/assets", "w") as f:
               for a in d.get("assets", []):
-                  f.write(f"{a['name']}\t{a['browser_download_url']}\n")
+                  f.write(f"{a['name']}\t{a.get('size', 0)}\t{a['browser_download_url']}\n")
+          # 比对只认名字和大小，不重新下载就能判断资产有没有变
+          with open("/tmp/assets.want", "w") as f:
+              for name, size in sorted((a["name"], a.get("size", 0)) for a in d.get("assets", [])):
+                  f.write(f"{name}\t{size}\n")
           PY
           TAG=$(cat /tmp/tag)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "latest: $TAG"
 
-      - name: Skip when already mirrored
+      - name: Compare with the mirrored copy
         id: check
         run: |
           set -euo pipefail
           TAG="${{ steps.src.outputs.tag }}"
-          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "mirrored=true" >> "$GITHUB_OUTPUT"
-            echo "$TAG already mirrored"
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "$TAG not mirrored yet"
+            exit 0
+          fi
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+
+          # 命令替换会去掉结尾换行，两边比较时按同样方式归一
+          here=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json body -q .body)
+          if [ "$here" = "$(cat /tmp/notes.md)" ]; then
+            echo "body_same=true" >> "$GITHUB_OUTPUT"
           else
-            echo "mirrored=false" >> "$GITHUB_OUTPUT"
+            echo "body_same=false" >> "$GITHUB_OUTPUT"
+            echo "body differs from the source"
+          fi
+
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets \
+            -q '.assets[] | "\(.name)\t\(.size)"' | sort > /tmp/assets.here
+          if cmp -s /tmp/assets.want /tmp/assets.here; then
+            echo "assets_same=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "assets_same=false" >> "$GITHUB_OUTPUT"
+            echo "assets differ from the source"
           fi
 
       - name: Decide the Latest mark
-        if: steps.check.outputs.mirrored == 'false'
         id: latest
         run: |
           set -euo pipefail
@@ -70,23 +94,55 @@ jobs:
             echo "$TOP is newer; $TAG will not take Latest"
           fi
 
-      - name: Download and publish
-        if: steps.check.outputs.mirrored == 'false'
+      - name: Download and publish or update
+        if: steps.check.outputs.exists == 'false' || steps.check.outputs.body_same == 'false' || steps.check.outputs.assets_same == 'false'
         env:
           TAG: ${{ steps.src.outputs.tag }}
           MAKE: ${{ steps.latest.outputs.make }}
+          EXISTS: ${{ steps.check.outputs.exists }}
+          ASSETS_SAME: ${{ steps.check.outputs.assets_same }}
         run: |
           set -euo pipefail
-          mkdir -p dist
-          while IFS=$'\t' read -r name url; do
-            [ -n "$name" ] || continue
-            echo "  $name"
-            curl -fsSL --retry 3 -o "dist/$name" "$url"
-          done < /tmp/assets
-          ls -lh dist
-          gh release create "$TAG" dist/* -R "$GITHUB_REPOSITORY" \
+          if [ "$EXISTS" = "false" ] || [ "$ASSETS_SAME" = "false" ]; then
+            mkdir -p dist
+            while IFS=$'\t' read -r name size url; do
+              [ -n "$name" ] || continue
+              echo "  $name ($size bytes)"
+              curl -fsSL --retry 3 -o "dist/$name" "$url"
+            done < /tmp/assets
+            ls -lh dist
+          fi
+
+          if [ "$EXISTS" = "false" ]; then
+            gh release create "$TAG" dist/* -R "$GITHUB_REPOSITORY" \
+              --title "$(cat /tmp/name)" \
+              --notes-file /tmp/notes.md \
+              --verify-tag \
+              --latest="$MAKE"
+            echo "mirrored $TAG"
+            exit 0
+          fi
+
+          gh release edit "$TAG" -R "$GITHUB_REPOSITORY" \
             --title "$(cat /tmp/name)" \
             --notes-file /tmp/notes.md \
-            --verify-tag \
             --latest="$MAKE"
-          echo "mirrored $TAG"
+          if [ -d dist ]; then
+            gh release upload "$TAG" dist/* -R "$GITHUB_REPOSITORY" --clobber
+          fi
+          echo "updated $TAG"
+
+      # 两个版本并发镜像时，各自在发布前算的 Latest 可能都不对，最后按版本号校正一次
+      - name: Latest stays on the newest
+        run: |
+          set -euo pipefail
+          TOP=$(gh release list -R "$GITHUB_REPOSITORY" -L 100 --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' | { grep -E '^v[0-9.]+$' || true; } | sort -V | tail -1)
+          [ -n "$TOP" ] || { echo "no published release"; exit 0; }
+          NOW=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" -q .tag_name 2>/dev/null || true)
+          if [ "$NOW" = "$TOP" ]; then
+            echo "$TOP is Latest"
+          else
+            echo "Latest was ${NOW:-none}: giving the mark to $TOP"
+            gh release edit "$TOP" -R "$GITHUB_REPOSITORY" --latest
+          fi
