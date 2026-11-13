@@ -1,8 +1,12 @@
 name: relay
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号，例如 0.2.0'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -23,9 +27,10 @@ jobs:
 
       - name: Resolve version
         run: |
-          RAW="${{ github.ref_name }}"
-          echo "VERSION=${RAW#v}" >> "$GITHUB_ENV"
-          echo "TAG=${RAW}" >> "$GITHUB_ENV"
+          RAW="${{ github.event.inputs.version }}"
+          VERSION="${RAW#v}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "TAG=v${VERSION}" >> "$GITHUB_ENV"
 
       - name: Build
         env:
