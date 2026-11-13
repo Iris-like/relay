@@ -1,8 +1,8 @@
 name: mirror
 
 # 从 relay-releases 拉取最新 Release，在 relay 仓库建一份镜像。
-# 不推送、不依赖跨仓库 PAT：relay-releases 是公开仓库，本仓库的
-# GITHUB_TOKEN 足以读取它的 Release 资产。
+# 读源仓库用匿名 GitHub API（公开仓库，不需要跨仓库 token）；
+# 写本仓库用自带的 GITHUB_TOKEN。
 
 on:
   schedule:
@@ -21,16 +21,26 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE: Llikey/relay-releases
+      SOURCE_API: https://api.github.com/repos/Llikey/relay-releases
     steps:
       - name: Read the latest release
         id: src
         run: |
           set -euo pipefail
-          TAG=$(gh release view -R "$SOURCE" --json tagName -q .tag_name)
+          curl -fsSL --retry 3 "$SOURCE_API/releases/latest" -o /tmp/latest.json
+          python3 - <<'PY'
+          import json
+
+          d = json.load(open("/tmp/latest.json"))
+          open("/tmp/tag", "w").write(d["tag_name"])
+          open("/tmp/name", "w").write(d.get("name") or d["tag_name"])
+          open("/tmp/notes.md", "w").write(d.get("body") or "")
+          with open("/tmp/assets", "w") as f:
+              for a in d.get("assets", []):
+                  f.write(f"{a['name']}\t{a['browser_download_url']}\n")
+          PY
+          TAG=$(cat /tmp/tag)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          gh release view -R "$SOURCE" --json name -q .name > /tmp/name
-          gh release view -R "$SOURCE" --json body -q .body > /tmp/notes.md
           echo "latest: $TAG"
 
       - name: Skip when already mirrored
@@ -68,7 +78,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          gh release download "$TAG" -R "$SOURCE" -D dist
+          while IFS=$'\t' read -r name url; do
+            [ -n "$name" ] || continue
+            echo "  $name"
+            curl -fsSL --retry 3 -o "dist/$name" "$url"
+          done < /tmp/assets
           ls -lh dist
           gh release create "$TAG" dist/* -R "$GITHUB_REPOSITORY" \
             --title "$(cat /tmp/name)" \
