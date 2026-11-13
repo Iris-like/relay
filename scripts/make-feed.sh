@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 编译新版本，并生成 SHA256SUMS、签名和 feed.json
+# 可选环境变量：MIN_VERSION=0.2.0 / ROLLBACK=1 / BLOCKED="0.1.9 0.1.10"
 set -euo pipefail
 
 VERSION="${1:?用法: scripts/make-feed.sh 0.1.7 [base-url]}"

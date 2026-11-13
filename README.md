@@ -10,9 +10,10 @@
 
 ```
 .
-├── main.go                  version / check / update 三个命令
+├── main.go                  version / check / update / guard / block 命令
 ├── feed.go                  feed 结构与版本比较
 ├── verify.go                Ed25519 验签 + 解析签名清单
+├── policy.go                策略签名、封禁列表、本机状态
 ├── install.go               下载、哈希校验、替换、exec
 ├── scripts/
 │   ├── gen-keys.sh          生成签名密钥
@@ -142,6 +143,49 @@ syscall.Exec 用新二进制替换当前进程
 
 1. **先验签，再信哈希**。哈希来自被签名的清单，不是来自 feed 字段。
 2. **暂存文件与目标同目录**，保证 rename 在同一个文件系统上，是原子操作。
+
+---
+
+## 策略：封禁、回滚、强制更新
+
+feed 增加三个字段，全部由 `meta_sig` 单独签名：
+
+| 字段 | 作用 |
+| --- | --- |
+| `blocked` | 列出不能安装的版本 |
+| `rollback` | 允许 feed 指向比当前旧的版本 |
+| `min_version` | 低于它拒绝运行 |
+
+为什么单独签名：`SHA256SUMS` 只覆盖文件，不覆盖策略。如果只签文件，攻击者可以随意把 `min_version` 改成不可能满足的版本，或把 `rollback` 打开。
+
+### 命令
+
+```bash
+./install/lab02 check
+./install/lab02 update
+./install/lab02 guard                 # 低于 min_version 时退出码 1
+./install/lab02 block 0.1.9           # 本机封禁
+./install/lab02 blocked
+./install/lab02 unblock 0.1.9
+```
+
+### 生成带策略的 feed
+
+```bash
+BLOCKED=0.1.9       bash scripts/make-feed.sh 0.1.9
+ROLLBACK=1          bash scripts/make-feed.sh 0.1.8
+MIN_VERSION=0.2.0   bash scripts/make-feed.sh 0.1.9
+```
+
+### 实测
+
+| 场景 | 输出 |
+| --- | --- |
+| 正常更新 0.1.8 → 0.1.9 | `发现新版本 0.1.9` |
+| feed 封禁 0.1.9 | `版本 0.1.9 已被 feed 封禁，跳过` |
+| 当前 0.1.9，feed 指向 0.1.8 且允许回滚 | `回滚到 0.1.8` |
+| 当前 0.1.8，min_version 0.2.0 | `guard` 退出码 1 |
+| 篡改 min_version 不重签 | `策略签名校验失败: 签名不匹配` |
 
 ---
 

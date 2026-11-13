@@ -15,15 +15,19 @@ type Asset struct {
 }
 
 type Signed struct {
-	Sums string `json:"sums"`
-	Sig  string `json:"sig"`
+	Sums    string `json:"sums"`
+	Sig     string `json:"sig"`
+	MetaSig string `json:"meta_sig,omitempty"`
 }
 
 type Release struct {
-	Version string           `json:"version"`
-	Notes   string           `json:"notes"`
-	Assets  map[string]Asset `json:"assets"`
-	Signed  *Signed          `json:"signed"`
+	Version    string           `json:"version"`
+	Notes      string           `json:"notes"`
+	MinVersion string           `json:"min_version,omitempty"`
+	Rollback   bool             `json:"rollback,omitempty"`
+	Blocked    []string         `json:"blocked,omitempty"`
+	Assets     map[string]Asset `json:"assets"`
+	Signed     *Signed          `json:"signed"`
 }
 
 func fetchRelease(url string) (*Release, error) {
