@@ -17,7 +17,9 @@
 ├── scripts/
 │   ├── gen-keys.sh          生成签名密钥
 │   ├── build-client.sh      编译带版本号与公钥的客户端
-│   └── make-feed.sh         编译新版本、生成 SHA256SUMS、签名、出 feed
+│   ├── make-feed.sh         编译新版本并生成 feed
+│   └── gen-feed.py          生成 SHA256SUMS、签名与 feed.json
+├── .github/workflows/release.yml  tag 触发构建、签名、发布
 └── server/                  本地 feed 与产物（gitignore）
 ```
 
@@ -80,6 +82,37 @@ python3 -m http.server 8099 --bind 127.0.0.1 --directory server
 ./install/lab02 version
 # lab02 0.1.7 darwin/arm64
 ```
+
+---
+
+## 接上 GitHub Release
+
+本目录带 `.github/workflows/release.yml`：打 tag 后自动构建三个平台、签名、发布 `feed.json` 与全部产物。
+
+已经实跑通过的仓库：[Llikey/lab02-self-update](https://github.com/Llikey/lab02-self-update)。
+
+更新命令：
+
+```bash
+./install/lab02 update \
+  --feed https://github.com/<owner>/lab02-self-update/releases/latest/download/feed.json
+```
+
+实测输出：
+
+```
+发现新版本 0.1.7，下载 lab02-darwin-arm64
+签名与哈希校验通过，准备替换
+lab02 0.1.7 darwin/arm64
+```
+
+三个前提：
+
+1. **仓库必须公开**。客户端没有 GitHub token，私有仓库的资产下载不了。
+2. `feed.json` 作为 Release 资产发布，`releases/latest/download/feed.json` 才会始终指向最新版本。
+3. feed 里的资产 URL 指向对应 tag 的 `releases/download/vX/<file>`，不是仓库源码。
+
+这就是 Lab 01 的发布流程与 Lab 02 的更新逻辑合在一起后的完整闭环。
 
 ---
 
