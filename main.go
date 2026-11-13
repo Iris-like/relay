@@ -29,7 +29,7 @@ func main() {
 
 	switch cmd {
 	case "version":
-		fmt.Printf("lab02 %s %s/%s\n", version, runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("relay %s %s/%s\n", version, runtime.GOOS, runtime.GOARCH)
 
 	case "check":
 		doCheck(*feed)
@@ -43,7 +43,7 @@ func main() {
 	case "block":
 		v := fs.Arg(0)
 		if v == "" {
-			fail("用法: lab02 block <version>")
+			fail("用法: relay block <version>")
 		}
 		if err := blockLocally(v); err != nil {
 			fail("写入状态失败: %v", err)
@@ -53,7 +53,7 @@ func main() {
 	case "unblock":
 		v := fs.Arg(0)
 		if v == "" {
-			fail("用法: lab02 unblock <version>")
+			fail("用法: relay unblock <version>")
 		}
 		if err := unblockLocally(v); err != nil {
 			fail("写入状态失败: %v", err)
@@ -71,7 +71,7 @@ func main() {
 		}
 
 	default:
-		fmt.Fprintln(os.Stderr, "用法: lab02 [version|check|update|guard|block|unblock|blocked] [--feed URL]")
+		fmt.Fprintln(os.Stderr, "用法: relay [version|check|update|guard|block|unblock|blocked] [--feed URL]")
 		os.Exit(2)
 	}
 }
@@ -187,7 +187,7 @@ func doGuard(feed string) {
 }
 
 func assetName() string {
-	return fmt.Sprintf("lab02-%s-%s", runtime.GOOS, runtime.GOARCH)
+	return fmt.Sprintf("relay-%s-%s", runtime.GOOS, runtime.GOARCH)
 }
 
 // cleanupOld 删除上一次更新留下的旧二进制

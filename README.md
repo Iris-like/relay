@@ -1,4 +1,4 @@
-# Lab 02：自更新
+# Relay：自更新
 
 目标：亲手实现「检查 → 下载 → 验签 → 替换 → 重启」，并验证篡改会被拒绝。
 
@@ -37,9 +37,9 @@ bash scripts/gen-keys.sh
 ### 2. 编译「旧版本」并安装到本地
 
 ```bash
-bash scripts/build-client.sh 0.1.6 install/lab02
-./install/lab02 version
-# lab02 0.1.6 darwin/arm64
+bash scripts/build-client.sh 0.1.6 install/relay
+./install/relay version
+# relay 0.1.6 darwin/arm64
 ```
 
 公钥会被编译进客户端，私钥只在本地 `.keys/`。
@@ -53,9 +53,9 @@ bash scripts/make-feed.sh 0.1.7
 产物：
 
 ```
-server/0.1.7/lab02-darwin-arm64
-server/0.1.7/lab02-darwin-amd64
-server/0.1.7/lab02-linux-amd64
+server/0.1.7/relay-darwin-arm64
+server/0.1.7/relay-darwin-amd64
+server/0.1.7/relay-linux-amd64
 server/0.1.7/SHA256SUMS
 server/feed.json
 ```
@@ -71,17 +71,17 @@ python3 -m http.server 8099 --bind 127.0.0.1 --directory server
 另开一个终端：
 
 ```bash
-./install/lab02 check
+./install/relay check
 # latest 0.1.7, current 0.1.6
 # update available
 
-./install/lab02 update
-# 发现新版本 0.1.7，下载 lab02-darwin-arm64
+./install/relay update
+# 发现新版本 0.1.7，下载 relay-darwin-arm64
 # 签名与哈希校验通过，准备替换
-# lab02 0.1.7 darwin/arm64
+# relay 0.1.7 darwin/arm64
 
-./install/lab02 version
-# lab02 0.1.7 darwin/arm64
+./install/relay version
+# relay 0.1.7 darwin/arm64
 ```
 
 ---
@@ -90,21 +90,21 @@ python3 -m http.server 8099 --bind 127.0.0.1 --directory server
 
 本目录带 `.github/workflows/release.yml`：打 tag 后自动构建三个平台、签名、发布 `feed.json` 与全部产物。
 
-已经实跑通过的仓库：[Llikey/lab02-self-update](https://github.com/Llikey/lab02-self-update)。
+已经实跑通过的仓库：[Llikey/relay](https://github.com/Llikey/relay)。
 
 更新命令：
 
 ```bash
-./install/lab02 update \
-  --feed https://github.com/<owner>/lab02-self-update/releases/latest/download/feed.json
+./install/relay update \
+  --feed https://github.com/<owner>/relay/releases/latest/download/feed.json
 ```
 
 实测输出：
 
 ```
-发现新版本 0.1.7，下载 lab02-darwin-arm64
+发现新版本 0.1.7，下载 relay-darwin-arm64
 签名与哈希校验通过，准备替换
-lab02 0.1.7 darwin/arm64
+relay 0.1.7 darwin/arm64
 ```
 
 三个前提：
@@ -113,7 +113,7 @@ lab02 0.1.7 darwin/arm64
 2. `feed.json` 作为 Release 资产发布，`releases/latest/download/feed.json` 才会始终指向最新版本。
 3. feed 里的资产 URL 指向对应 tag 的 `releases/download/vX/<file>`，不是仓库源码。
 
-这就是 Lab 01 的发布流程与 Lab 02 的更新逻辑合在一起后的完整闭环。
+这就是 Anvil 的发布流程与 Relay 的更新逻辑合在一起后的完整闭环。
 
 兼容性也验证过：v0.1.7 的旧客户端不认识 `min_version` / `rollback` / `blocked`，仍能正常升级到 v0.1.8；新客户端才开始执行这些策略。
 
@@ -126,19 +126,19 @@ GET /feed.json
   ↓
 semver 比较：0.1.7 > 0.1.6
   ↓
-校验签名：ed25519("lab02 release 0.1.7\n" + SHA256SUMS)
+校验签名：ed25519("relay release 0.1.7\n" + SHA256SUMS)
   ↓
 从签名清单里取当前平台产物的 sha256
   ↓
-下载到 .lab02.new（与可执行文件同目录）
+下载到 .relay.new（与可执行文件同目录）
   ↓
 计算 sha256，必须等于清单里的值
   ↓
-旧文件改名 lab02.old，新文件改名 lab02
+旧文件改名 relay.old，新文件改名 relay
   ↓
 syscall.Exec 用新二进制替换当前进程
   ↓
-新进程启动时清理 lab02.old
+新进程启动时清理 relay.old
 ```
 
 两个关键点：
@@ -163,12 +163,12 @@ feed 增加三个字段，全部由 `meta_sig` 单独签名：
 ### 命令
 
 ```bash
-./install/lab02 check
-./install/lab02 update
-./install/lab02 guard                 # 低于 min_version 时退出码 1
-./install/lab02 block 0.1.9           # 本机封禁
-./install/lab02 blocked
-./install/lab02 unblock 0.1.9
+./install/relay check
+./install/relay update
+./install/relay guard                 # 低于 min_version 时退出码 1
+./install/relay block 0.1.9           # 本机封禁
+./install/relay blocked
+./install/relay unblock 0.1.9
 ```
 
 ### 生成带策略的 feed
@@ -196,8 +196,8 @@ MIN_VERSION=0.2.0   bash scripts/make-feed.sh 0.1.9
 ### 篡改产物
 
 ```bash
-printf 'x' >> server/0.1.7/lab02-darwin-arm64
-./install/lab02 update
+printf 'x' >> server/0.1.7/relay-darwin-arm64
+./install/relay update
 # ✗ 哈希不匹配：得到 ...，期望 ...
 ```
 
@@ -207,7 +207,7 @@ printf 'x' >> server/0.1.7/lab02-darwin-arm64
 
 ```bash
 # 把 feed.json 的 version 改成 0.1.8，签名不变
-./install/lab02 update
+./install/relay update
 # ✗ 版本 0.1.8 的签名不匹配，拒绝安装
 ```
 

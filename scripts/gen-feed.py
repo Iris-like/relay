@@ -52,15 +52,15 @@ def main() -> None:
         x for x in os.environ.get("BLOCKED", "").replace(",", " ").split() if x
     )
 
-    names = sorted(n for n in os.listdir(dist) if n.startswith("lab02-"))
+    names = sorted(n for n in os.listdir(dist) if n.startswith("relay-"))
     if not names:
-        sys.exit(f"{dist} 里没有 lab02-* 产物")
+        sys.exit(f"{dist} 里没有 relay-* 产物")
 
     sums = "\n".join(f"{sha256(os.path.join(dist, n))}  {n}" for n in names)
-    sig = sign(key, f"lab02 release {version}\n{sums}".encode())
+    sig = sign(key, f"relay release {version}\n{sums}".encode())
 
     meta = (
-        f"lab02 meta {version}\n"
+        f"relay meta {version}\n"
         f"min={min_version}\n"
         f"rollback={'true' if rollback else 'false'}\n"
         f"blocked={','.join(blocked)}"

@@ -27,7 +27,7 @@ func (r *Release) verifyMeta() error {
 	blocked := append([]string(nil), r.Blocked...)
 	sort.Strings(blocked)
 	msg := fmt.Sprintf(
-		"lab02 meta %s\nmin=%s\nrollback=%t\nblocked=%s",
+		"relay meta %s\nmin=%s\nrollback=%t\nblocked=%s",
 		r.Version, r.MinVersion, r.Rollback, strings.Join(blocked, ","),
 	)
 	return verifySig(msg, r.Signed.MetaSig)
@@ -47,14 +47,14 @@ type state struct {
 }
 
 func statePath() string {
-	if p := os.Getenv("LAB02_STATE"); p != "" {
+	if p := os.Getenv("RELAY_STATE"); p != "" {
 		return p
 	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
-		return ".lab02-state.json"
+		return ".relay-state.json"
 	}
-	return filepath.Join(dir, "lab02", "state.json")
+	return filepath.Join(dir, "relay", "state.json")
 }
 
 func loadState() state {

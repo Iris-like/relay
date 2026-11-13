@@ -40,7 +40,7 @@ func (r *Release) verifySums() (map[string]string, error) {
 	if r.Signed == nil {
 		return nil, errors.New("feed 没有签名，拒绝安装")
 	}
-	if err := verifySig("lab02 release "+r.Version+"\n"+r.Signed.Sums, r.Signed.Sig); err != nil {
+	if err := verifySig("relay release "+r.Version+"\n"+r.Signed.Sums, r.Signed.Sig); err != nil {
 		return nil, fmt.Errorf("版本 %s 的签名无效，拒绝安装: %w", r.Version, err)
 	}
 

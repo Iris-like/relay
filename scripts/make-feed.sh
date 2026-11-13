@@ -22,7 +22,7 @@ for target in darwin/arm64 darwin/amd64 linux/amd64; do
   echo "  build ${os}/${arch}"
   CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
     -ldflags "-s -w -X main.version=${VERSION} -X main.signingKey=${PUB}" \
-    -o "${DIR}/lab02-${os}-${arch}" .
+    -o "${DIR}/relay-${os}-${arch}" .
 done
 
 python3 scripts/gen-feed.py "$VERSION" "${BASE}/${VERSION}" "$DIR" "$KEY" "server/feed.json"

@@ -1,3 +1,3 @@
-module lab02
+module relay
 
 go 1.22

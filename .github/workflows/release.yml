@@ -1,4 +1,4 @@
-name: lab02-release
+name: relay
 
 on:
   push:
@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: lab02-release
+  group: relay-release
   cancel-in-progress: false
 
 jobs:
@@ -44,7 +44,7 @@ jobs:
             arch=${target#*/}
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
               -ldflags "-s -w -X main.version=${VERSION} -X main.signingKey=${PUB}" \
-              -o "dist/lab02-${os}-${arch}" .
+              -o "dist/relay-${os}-${arch}" .
           done
           ls -lh dist
 
@@ -74,8 +74,8 @@ jobs:
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
-            gh release edit "$TAG" --title "lab02 $TAG" --notes "自更新实验版"
+            gh release edit "$TAG" --title "relay $TAG" --notes "自更新实验版"
           else
             gh release create "$TAG" dist/* \
-              --title "lab02 $TAG" --notes "自更新实验版" --verify-tag
+              --title "relay $TAG" --notes "自更新实验版" --verify-tag
           fi

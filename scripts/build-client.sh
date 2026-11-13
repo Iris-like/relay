@@ -2,7 +2,7 @@
 # 编译一个带版本号和公钥的客户端
 set -euo pipefail
 
-VERSION="${1:?用法: scripts/build-client.sh 0.1.6 install/lab02}"
+VERSION="${1:?用法: scripts/build-client.sh 0.1.6 install/relay}"
 OUT="${2:?缺少输出路径}"
 
 KEY_DIR=".keys"
