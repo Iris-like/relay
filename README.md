@@ -120,6 +120,26 @@ relay 0.3.2 darwin/arm64
 
 这就是 Anvil 的发布流程与 Relay 的更新逻辑合在一起后的完整闭环。
 
+### 自动镜像
+
+`relay` 仓库带 `.github/workflows/mirror.yml`：
+
+- 每小时 :17 拉取 `relay-releases` 的最新 Release
+- 已存在同 tag 就跳过
+- 只在版本不旧于现有 Latest 时打 Latest
+- **读源仓库用匿名 GitHub API**，不需要跨仓库 PAT
+- 写回本仓库用自带的 `GITHUB_TOKEN`
+
+手动触发：
+
+```bash
+gh workflow run mirror.yml -R <owner>/relay
+```
+
+实测：`relay-releases` 发布 v0.3.3 后，镜像 workflow 建出同名、同资产的 Release，两边 Latest 都是 v0.3.3。
+
+注意：镜像不复制 tag，源码仓库的 tag 需要先存在（发布流程里先给 `relay` 打 tag，再给 `relay-releases` 打 tag）。
+
 注意：从 `lab02` 改名到 `relay` 是不兼容变更——旧客户端验签的消息前缀、寻找的资产名都变了，无法跨名字更新。旧机器需要手动安装一次 `relay`，之后才能走自更新。
 
 兼容性也验证过：v0.1.7 的旧客户端不认识 `min_version` / `rollback` / `blocked`，仍能正常升级到 v0.1.8；新客户端才开始执行这些策略。
