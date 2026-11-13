@@ -14,10 +14,6 @@ var version = "dev"
 var signingKey = "" // Ed25519 公钥，base64（raw 32 字节）
 
 func main() {
-	// 记录一次成功启动；.old 备份只在确认新版本可用后才清理
-	noteSuccessfulStart(version)
-	cleanupOld()
-
 	args := os.Args[1:]
 	cmd := "version"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -190,6 +186,7 @@ func doGuard(feed string) {
 			fmt.Fprintf(os.Stderr, "当前 %s 低于最低支持版本 %s，必须更新后使用\n", version, rel.MinVersion)
 			os.Exit(1)
 		}
+		confirmStart()
 		fmt.Println("ok")
 		return
 	}
@@ -200,7 +197,15 @@ func doGuard(feed string) {
 		fmt.Fprintf(os.Stderr, "当前 %s 低于缓存的最低支持版本 %s，必须更新后使用\n", version, s.LastMinVersion)
 		os.Exit(1)
 	}
+	confirmStart()
 	fmt.Println("ok（离线）")
+}
+
+// confirmStart 只在 guard 通过后计数：读版本、更新、封禁这些命令
+// 不是应用启动，安装时 exec 的 version 健康检查也不该算一次成功启动。
+func confirmStart() {
+	noteSuccessfulStart(version)
+	cleanupOld()
 }
 
 func assetName() string {
@@ -208,7 +213,8 @@ func assetName() string {
 }
 
 // cleanupOld 在新版本被确认可用后才删除上一次更新留下的旧二进制。
-// 连续成功启动 N 次才清理，这样新版本启动后立即崩溃时，备份仍在，可以手动恢复。
+// 计数只来自 guard 成功（见 confirmStart），连续 N 次启动检查通过才清理，
+// 这样安装时 exec 的 `version` 健康检查不会被当成一次成功启动。
 const startsBeforeCleanup = 2
 
 // 测试时替换成固定路径，避免依赖运行测试的进程可执行文件。

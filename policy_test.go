@@ -206,3 +206,17 @@ func TestCleanupOldWaitsForConfirmedStarts(t *testing.T) {
 		t.Fatal("连续启动成功后备份应被清理")
 	}
 }
+
+// 对应 issue：只有 guard 通过才计一次启动，安装时 exec 的 version 不算
+func TestGuardCountsStart(t *testing.T) {
+	withTestKey(t)
+	p := os.Getenv("RELAY_STATE")
+	if err := os.WriteFile(p, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmdResult(t, "guard", "--feed", "http://127.0.0.1:1/feed.json")
+	if got := loadState().Starts; got != 1 {
+		t.Fatalf("一次成功的 guard 后 starts 应为 1，实际 %d", got)
+	}
+}

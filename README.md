@@ -165,7 +165,7 @@ semver 比较：0.1.7 > 0.1.6
   ↓
 syscall.Exec 用新二进制替换当前进程
   ↓
-新进程启动时清理 relay.old
+新版本连续两次通过 guard 启动检查后清理 relay.old
 ```
 
 两个关键点：

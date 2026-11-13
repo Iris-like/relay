@@ -5,7 +5,8 @@ name: mirror
 # 写本仓库用自带的 GITHUB_TOKEN。
 #
 # 同名 Release 已存在时不再整段跳过：正文、标题变了就更新；
-# 资产按「名字 + sha256 digest」比对，同名同大小但内容不同的也会重传。
+# 资产按「名字 + sha256 digest」比对，同名同大小但内容不同的也会重传；
+# 没有 digest 的旧资产退回按大小比对。
 # 下载后按源的 digest 校验字节，防止传到一半的损坏文件被发布。
 
 on:
@@ -39,18 +40,19 @@ jobs:
           open("/tmp/tag", "w").write(d["tag_name"])
           open("/tmp/name", "w").write(d.get("name") or d["tag_name"])
           open("/tmp/notes.md", "w").write(d.get("body") or "")
+          def asset_key(a):
+              digest = (a.get("digest") or "").removeprefix("sha256:")
+              # digest 缺失（旧接口/旧资产）时退回大小，至少能发现尺寸变化
+              return digest or f"size:{a.get('size', 0)}"
+
           with open("/tmp/assets", "w") as f:
               for a in d.get("assets", []):
-                  # digest 可能缺失（旧接口/旧资产），此时退回 size 兜底
                   digest = (a.get("digest") or "").removeprefix("sha256:")
                   f.write(f"{a['name']}\t{a.get('size', 0)}\t{digest}\t{a['browser_download_url']}\n")
-          # 比对认「名字 + digest」，内容变了但大小没变也能发现
+          # 比对认「名字 + digest」；没有 digest 的旧资产用大小兜底
           with open("/tmp/assets.want", "w") as f:
-              for name, digest in sorted(
-                  (a["name"], (a.get("digest") or "").removeprefix("sha256:"))
-                  for a in d.get("assets", [])
-              ):
-                  f.write(f"{name}\t{digest}\n")
+              for name, k in sorted((a["name"], asset_key(a)) for a in d.get("assets", [])):
+                  f.write(f"{name}\t{k}\n")
           PY
           TAG=$(cat /tmp/tag)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -88,7 +90,8 @@ jobs:
           # 镜像侧同样用「名字 + digest」比对；digest 缺失时用 size 兜底，
           # 并输出源仓库有、镜像没有的资产名，供后续对齐删除
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets \
-            -q '.assets[] | "\(.name)\t\(.digest // "" | sub("^sha256:"; ""))"' \
+            -q '.assets[] | "\(.name)\t\(.digest // "" | sub("^sha256:"; ""))\t\(.size)"' \
+            | awk -F'\t' '{ print $1 "\t" (($2 != "") ? $2 : "size:" $3) }' \
             | sort > /tmp/assets.here
           if cmp -s /tmp/assets.want /tmp/assets.here; then
             echo "assets_same=true" >> "$GITHUB_OUTPUT"
