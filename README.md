@@ -99,13 +99,15 @@ python3 -m http.server 8099 --bind 127.0.0.1 --directory server
   --feed https://github.com/<owner>/relay/releases/latest/download/feed.json
 ```
 
-实测输出：
+实测输出（v0.1.9 → v0.2.0）：
 
 ```
-发现新版本 0.1.7，下载 relay-darwin-arm64
+发现新版本 0.2.0，下载 relay-darwin-arm64
 签名与哈希校验通过，准备替换
-relay 0.1.7 darwin/arm64
+relay 0.2.0 darwin/arm64
 ```
+
+注意：从 `lab02` 改名到 `relay` 是一次不兼容变更——旧客户端验签用的消息前缀、寻找的资产名都变了，无法跨名字更新。旧机器需要手动安装一次 `relay`，之后才能走自更新。
 
 三个前提：
 
