@@ -1,0 +1,78 @@
+name: mirror
+
+# 从 relay-releases 拉取最新 Release，在 relay 仓库建一份镜像。
+# 不推送、不依赖跨仓库 PAT：relay-releases 是公开仓库，本仓库的
+# GITHUB_TOKEN 足以读取它的 Release 资产。
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE: Llikey/relay-releases
+    steps:
+      - name: Read the latest release
+        id: src
+        run: |
+          set -euo pipefail
+          TAG=$(gh release view -R "$SOURCE" --json tagName -q .tag_name)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          gh release view -R "$SOURCE" --json name -q .name > /tmp/name
+          gh release view -R "$SOURCE" --json body -q .body > /tmp/notes.md
+          echo "latest: $TAG"
+
+      - name: Skip when already mirrored
+        id: check
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.src.outputs.tag }}"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "mirrored=true" >> "$GITHUB_OUTPUT"
+            echo "$TAG already mirrored"
+          else
+            echo "mirrored=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Decide the Latest mark
+        if: steps.check.outputs.mirrored == 'false'
+        id: latest
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.src.outputs.tag }}"
+          TOP=$(gh release list -R "$GITHUB_REPOSITORY" -L 100 --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' | { grep -E '^v[0-9.]+$' || true; } | sort -V | tail -1)
+          if [ -z "$TOP" ] || [ "$(printf '%s\n%s\n' "$TOP" "$TAG" | sort -V | tail -1)" = "$TAG" ]; then
+            echo "make=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "make=false" >> "$GITHUB_OUTPUT"
+            echo "$TOP is newer; $TAG will not take Latest"
+          fi
+
+      - name: Download and publish
+        if: steps.check.outputs.mirrored == 'false'
+        env:
+          TAG: ${{ steps.src.outputs.tag }}
+          MAKE: ${{ steps.latest.outputs.make }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$TAG" -R "$SOURCE" -D dist
+          ls -lh dist
+          gh release create "$TAG" dist/* -R "$GITHUB_REPOSITORY" \
+            --title "$(cat /tmp/name)" \
+            --notes-file /tmp/notes.md \
+            --verify-tag \
+            --latest="$MAKE"
+          echo "mirrored $TAG"
