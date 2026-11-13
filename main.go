@@ -14,6 +14,8 @@ var version = "dev"
 var signingKey = "" // Ed25519 公钥，base64（raw 32 字节）
 
 func main() {
+	// 记录一次成功启动；.old 备份只在确认新版本可用后才清理
+	noteSuccessfulStart(version)
 	cleanupOld()
 
 	args := os.Args[1:]
@@ -84,6 +86,7 @@ func doCheck(feed string) {
 	if err := rel.verifyMeta(); err != nil {
 		fail("策略签名校验失败: %v", err)
 	}
+	rememberMinVersion(rel.MinVersion)
 
 	fmt.Printf("latest %s, current %s\n", rel.Version, version)
 	if rel.MinVersion != "" {
@@ -124,6 +127,7 @@ func doUpdate(feed string) {
 	if err := rel.verifyMeta(); err != nil {
 		fail("策略签名校验失败: %v", err)
 	}
+	rememberMinVersion(rel.MinVersion)
 
 	cur, target := version, rel.Version
 
@@ -170,33 +174,60 @@ func doUpdate(feed string) {
 	}
 }
 
-// doGuard 供启动时调用：低于最低支持版本直接拒绝运行
+// doGuard 供启动时调用：低于最低支持版本直接拒绝运行。
+// 读不到 feed 是网络问题，不是版本问题，输出 warning 并放行，
+// 避免断网时应用被自己挡住；同时用缓存的 min_version 继续兜底。
 func doGuard(feed string) {
 	rel, err := fetchRelease(feed)
 	if err != nil {
-		fail("读取 feed 失败: %v", err)
+		fmt.Fprintf(os.Stderr, "⚠ 读取 feed 失败，跳过在线版本检查：%v\n", err)
+	} else if verr := rel.verifyMeta(); verr != nil {
+		// 验签失败属于 feed 不可信：不让它影响启动，但也不能采信其中的 min_version
+		fmt.Fprintf(os.Stderr, "⚠ 策略签名校验失败，跳过在线版本检查：%v\n", verr)
+	} else {
+		rememberMinVersion(rel.MinVersion)
+		if Newer(rel.MinVersion, version) {
+			fmt.Fprintf(os.Stderr, "当前 %s 低于最低支持版本 %s，必须更新后使用\n", version, rel.MinVersion)
+			os.Exit(1)
+		}
+		fmt.Println("ok")
+		return
 	}
-	if err := rel.verifyMeta(); err != nil {
-		fail("策略签名校验失败: %v", err)
-	}
-	if Newer(rel.MinVersion, version) {
-		fmt.Fprintf(os.Stderr, "当前 %s 低于最低支持版本 %s，必须更新后使用\n", version, rel.MinVersion)
+
+	// 网络失败或验签失败时，仍用上次成功读到的最低版本兜底
+	s := loadState()
+	if Newer(s.LastMinVersion, version) {
+		fmt.Fprintf(os.Stderr, "当前 %s 低于缓存的最低支持版本 %s，必须更新后使用\n", version, s.LastMinVersion)
 		os.Exit(1)
 	}
-	fmt.Println("ok")
+	fmt.Println("ok（离线）")
 }
 
 func assetName() string {
 	return fmt.Sprintf("relay-%s-%s", runtime.GOOS, runtime.GOARCH)
 }
 
-// cleanupOld 删除上一次更新留下的旧二进制
+// cleanupOld 在新版本被确认可用后才删除上一次更新留下的旧二进制。
+// 连续成功启动 N 次才清理，这样新版本启动后立即崩溃时，备份仍在，可以手动恢复。
+const startsBeforeCleanup = 2
+
+// 测试时替换成固定路径，避免依赖运行测试的进程可执行文件。
+var executablePath = executable
+
 func cleanupOld() {
-	exe, err := executable()
+	exe, err := executablePath()
 	if err != nil {
 		return
 	}
-	os.Remove(exe + ".old")
+	backup := exe + ".old"
+	if _, err := os.Stat(backup); err != nil {
+		return
+	}
+	s := loadState()
+	if s.ConfirmedVersion != version || s.Starts < startsBeforeCleanup {
+		return
+	}
+	os.Remove(backup)
 }
 
 func executable() (string, error) {

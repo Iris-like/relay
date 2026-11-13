@@ -4,8 +4,9 @@ name: mirror
 # 读源仓库用匿名 GitHub API（公开仓库，不需要跨仓库 token）；
 # 写本仓库用自带的 GITHUB_TOKEN。
 #
-# 同名 Release 已存在时不再整段跳过：正文变了就更新，资产名或大小变了就重传。
-# 否则源仓库改了说明（比如补写），镜像仓库会一直停在旧正文。
+# 同名 Release 已存在时不再整段跳过：正文、标题变了就更新；
+# 资产按「名字 + sha256 digest」比对，同名同大小但内容不同的也会重传。
+# 下载后按源的 digest 校验字节，防止传到一半的损坏文件被发布。
 
 on:
   schedule:
@@ -40,11 +41,16 @@ jobs:
           open("/tmp/notes.md", "w").write(d.get("body") or "")
           with open("/tmp/assets", "w") as f:
               for a in d.get("assets", []):
-                  f.write(f"{a['name']}\t{a.get('size', 0)}\t{a['browser_download_url']}\n")
-          # 比对只认名字和大小，不重新下载就能判断资产有没有变
+                  # digest 可能缺失（旧接口/旧资产），此时退回 size 兜底
+                  digest = (a.get("digest") or "").removeprefix("sha256:")
+                  f.write(f"{a['name']}\t{a.get('size', 0)}\t{digest}\t{a['browser_download_url']}\n")
+          # 比对认「名字 + digest」，内容变了但大小没变也能发现
           with open("/tmp/assets.want", "w") as f:
-              for name, size in sorted((a["name"], a.get("size", 0)) for a in d.get("assets", [])):
-                  f.write(f"{name}\t{size}\n")
+              for name, digest in sorted(
+                  (a["name"], (a.get("digest") or "").removeprefix("sha256:"))
+                  for a in d.get("assets", [])
+              ):
+                  f.write(f"{name}\t{digest}\n")
           PY
           TAG=$(cat /tmp/tag)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -62,23 +68,37 @@ jobs:
           fi
           echo "exists=true" >> "$GITHUB_OUTPUT"
 
-          # 命令替换会去掉结尾换行，两边比较时按同样方式归一
-          here=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json body -q .body)
-          if [ "$here" = "$(cat /tmp/notes.md)" ]; then
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json body,assets \
+            -q '.body' > /tmp/body.here
+          if cmp -s /tmp/body.here /tmp/notes.md; then
             echo "body_same=true" >> "$GITHUB_OUTPUT"
           else
             echo "body_same=false" >> "$GITHUB_OUTPUT"
             echo "body differs from the source"
           fi
 
+          # 标题也要比对，源仓库改标题后镜像跟着改
+          if [ "$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json name -q .name)" = "$(cat /tmp/name)" ]; then
+            echo "title_same=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "title_same=false" >> "$GITHUB_OUTPUT"
+            echo "title differs from the source"
+          fi
+
+          # 镜像侧同样用「名字 + digest」比对；digest 缺失时用 size 兜底，
+          # 并输出源仓库有、镜像没有的资产名，供后续对齐删除
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets \
-            -q '.assets[] | "\(.name)\t\(.size)"' | sort > /tmp/assets.here
+            -q '.assets[] | "\(.name)\t\(.digest // "" | sub("^sha256:"; ""))"' \
+            | sort > /tmp/assets.here
           if cmp -s /tmp/assets.want /tmp/assets.here; then
             echo "assets_same=true" >> "$GITHUB_OUTPUT"
           else
             echo "assets_same=false" >> "$GITHUB_OUTPUT"
             echo "assets differ from the source"
           fi
+          cut -f1 /tmp/assets.want | sort > /tmp/want.names
+          cut -f1 /tmp/assets.here | sort > /tmp/here.names
+          comm -13 /tmp/want.names /tmp/here.names > /tmp/assets.extra || true
 
       - name: Decide the Latest mark
         id: latest
@@ -95,7 +115,7 @@ jobs:
           fi
 
       - name: Download and publish or update
-        if: steps.check.outputs.exists == 'false' || steps.check.outputs.body_same == 'false' || steps.check.outputs.assets_same == 'false'
+        if: steps.check.outputs.exists == 'false' || steps.check.outputs.body_same == 'false' || steps.check.outputs.title_same == 'false' || steps.check.outputs.assets_same == 'false'
         env:
           TAG: ${{ steps.src.outputs.tag }}
           MAKE: ${{ steps.latest.outputs.make }}
@@ -105,10 +125,17 @@ jobs:
           set -euo pipefail
           if [ "$EXISTS" = "false" ] || [ "$ASSETS_SAME" = "false" ]; then
             mkdir -p dist
-            while IFS=$'\t' read -r name size url; do
+            while IFS=$'\t' read -r name size digest url; do
               [ -n "$name" ] || continue
               echo "  $name ($size bytes)"
               curl -fsSL --retry 3 -o "dist/$name" "$url"
+              # 有 digest 就校验下载字节，避免损坏或截断的产物被发布
+              if [ -n "$digest" ]; then
+                got=$(sha256sum "dist/$name" | cut -d' ' -f1)
+                [ "$got" = "$digest" ] || {
+                  echo "::error::$name 下载后 sha256 不匹配（得到 $got，期望 $digest）"; exit 1;
+                }
+              fi
             done < /tmp/assets
             ls -lh dist
           fi
@@ -129,6 +156,14 @@ jobs:
             --latest="$MAKE"
           if [ -d dist ]; then
             gh release upload "$TAG" dist/* -R "$GITHUB_REPOSITORY" --clobber
+          fi
+          # 源仓库删掉的资产，镜像也删掉，保持两边完全一致
+          if [ -s /tmp/assets.extra ]; then
+            while IFS= read -r name; do
+              [ -n "$name" ] || continue
+              echo "  删除镜像中多余的资产: $name"
+              gh release delete-asset "$TAG" "$name" -R "$GITHUB_REPOSITORY" --yes
+            done < /tmp/assets.extra
           fi
           echo "updated $TAG"
 

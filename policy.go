@@ -12,16 +12,16 @@ import (
 
 // verifyMeta 校验策略字段（最低版本、回滚、封禁列表）的签名。
 // 这些字段不在 SHA256SUMS 里，必须单独签名，否则 feed 可以随意篡改。
+//
+// 策略字段与 meta_sig 必须成对出现：即使三个字段全为空，也要求有签名。
+// 否则攻击者可以把 min_version / blocked / rollback 连同 meta_sig 一起删掉，
+// 旧代码会因为「没有策略字段」直接放行，等于绕过了强制更新与封禁策略。
 func (r *Release) verifyMeta() error {
 	if r.Signed == nil {
 		return errors.New("feed 没有签名")
 	}
-	hasPolicy := r.MinVersion != "" || r.Rollback || len(r.Blocked) > 0
 	if r.Signed.MetaSig == "" {
-		if hasPolicy {
-			return errors.New("feed 带策略字段但没有 meta 签名，拒绝使用")
-		}
-		return nil
+		return errors.New("feed 缺少 meta 签名，拒绝使用")
 	}
 
 	blocked := append([]string(nil), r.Blocked...)
@@ -44,6 +44,12 @@ func contains(list []string, v string) bool {
 
 type state struct {
 	Blocked []string `json:"blocked"`
+	// 最近一次成功读取到的 min_version，用于断网时仍执行强制更新策略
+	LastMinVersion string `json:"last_min_version,omitempty"`
+	// 当前版本连续成功启动的次数，用于决定何时清理 .old 备份
+	Starts int `json:"starts,omitempty"`
+	// 已经确认可用的版本，版本变化后重新计数
+	ConfirmedVersion string `json:"confirmed_version,omitempty"`
 }
 
 func statePath() string {
@@ -102,4 +108,26 @@ func unblockLocally(v string) error {
 	}
 	s.Blocked = out
 	return saveState(s)
+}
+
+// rememberMinVersion 记录本次成功读到的 feed 中的最低版本。
+func rememberMinVersion(v string) {
+	s := loadState()
+	if s.LastMinVersion == v {
+		return
+	}
+	s.LastMinVersion = v
+	_ = saveState(s)
+}
+
+// noteSuccessfulStart 累计当前版本的成功启动次数；版本变化时重新计数。
+func noteSuccessfulStart(v string) {
+	s := loadState()
+	if s.ConfirmedVersion != v {
+		s.ConfirmedVersion = v
+		s.Starts = 1
+	} else {
+		s.Starts++
+	}
+	_ = saveState(s)
 }

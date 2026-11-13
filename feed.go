@@ -50,27 +50,52 @@ func fetchRelease(url string) (*Release, error) {
 	return &rel, nil
 }
 
-// Newer 判断 a 是否比 b 新；只比较数字段，遇到非数字按 0 处理
+// Newer 判断 a 是否比 b 新；主版本相同则正式版高于预发布版，
+// 预发布之间按点分标识符比较（数字段按数值、其余按字典序，缺段者更小）。
 func Newer(a, b string) bool {
-	as, bs := parseVer(a), parseVer(b)
+	av, bv := parseVer(a), parseVer(b)
 	for i := 0; i < 3; i++ {
-		if as[i] != bs[i] {
-			return as[i] > bs[i]
+		if av.num[i] != bv.num[i] {
+			return av.num[i] > bv.num[i]
 		}
 	}
-	return false
+	// 主版本号相同：无预发布后缀 > 有预发布后缀
+	if len(av.pre) == 0 || len(bv.pre) == 0 {
+		return len(av.pre) == 0 && len(bv.pre) > 0
+	}
+	for i := 0; i < len(av.pre) && i < len(bv.pre); i++ {
+		an, aerr := strconv.Atoi(av.pre[i])
+		bn, berr := strconv.Atoi(bv.pre[i])
+		if aerr == nil && berr == nil {
+			if an != bn {
+				return an > bn
+			}
+		} else if av.pre[i] != bv.pre[i] {
+			return av.pre[i] > bv.pre[i]
+		}
+	}
+	return len(av.pre) > len(bv.pre)
 }
 
-func parseVer(v string) [3]int {
+type parsedVersion struct {
+	num [3]int
+	pre []string
+}
+
+func parseVer(v string) parsedVersion {
 	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
-	// 去掉 -beta 之类的后缀
-	if i := strings.IndexAny(v, "-+"); i >= 0 {
+	var out parsedVersion
+	// 先按 - 拆出预发布部分；+ 之后的构建元数据不参与比较
+	if i := strings.IndexByte(v, '+'); i >= 0 {
+		v = v[:i]
+	}
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		out.pre = strings.Split(v[i+1:], ".")
 		v = v[:i]
 	}
 	parts := strings.Split(v, ".")
-	var out [3]int
 	for i := 0; i < 3 && i < len(parts); i++ {
-		out[i], _ = strconv.Atoi(parts[i])
+		out.num[i], _ = strconv.Atoi(parts[i])
 	}
 	return out
 }

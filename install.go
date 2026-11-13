@@ -88,13 +88,15 @@ func sha256File(path string) (string, error) {
 
 // replaceAndRelaunch 把新文件换到当前可执行文件的位置，然后 exec 自己。
 // 成功时进程映像被新版本替换，不会返回。
+//
+// 旧的 .old 备份不再在替换时被删掉：它由新进程在确认连续启动成功后清理，
+// 这样新版本启动即崩溃时仍有备份可以手动恢复。
 func replaceAndRelaunch(staged string) error {
 	exe, err := executable()
 	if err != nil {
 		return err
 	}
 	backup := exe + ".old"
-	os.Remove(backup)
 
 	if err := os.Rename(exe, backup); err != nil {
 		return err
