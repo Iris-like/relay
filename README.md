@@ -88,34 +88,39 @@ python3 -m http.server 8099 --bind 127.0.0.1 --directory server
 
 ## 接上 GitHub Release
 
-本目录带 `.github/workflows/release.yml`：打 tag 后自动构建三个平台、签名、发布 `feed.json` 与全部产物。
+现在采用和 magpie 相同的双仓库结构：
 
-已经实跑通过的仓库：[Llikey/relay](https://github.com/Llikey/relay)。
+```
+relay             源码 + 手动调试构建（workflow_dispatch）
+relay-releases    构建、签名、发布、feed（Anvil 流水线）
+```
+
+`relay-releases` 的 workflow 会 checkout `relay` 的源码，构建 `relay-*`，签名后发布到自己的 Releases；`relay` 仓库不再由 tag 自动发布。
 
 更新命令：
 
 ```bash
 ./install/relay update \
-  --feed https://github.com/<owner>/relay/releases/latest/download/feed.json
+  --feed https://github.com/<owner>/relay-releases/releases/latest/download/relay-feed.json
 ```
 
-实测输出（v0.1.9 → v0.2.0）：
+实测输出（0.2.0 → 0.3.2）：
 
 ```
-发现新版本 0.2.0，下载 relay-darwin-arm64
+发现新版本 0.3.2，下载 relay-darwin-arm64
 签名与哈希校验通过，准备替换
-relay 0.2.0 darwin/arm64
+relay 0.3.2 darwin/arm64
 ```
-
-注意：从 `lab02` 改名到 `relay` 是一次不兼容变更——旧客户端验签用的消息前缀、寻找的资产名都变了，无法跨名字更新。旧机器需要手动安装一次 `relay`，之后才能走自更新。
 
 三个前提：
 
-1. **仓库必须公开**。客户端没有 GitHub token，私有仓库的资产下载不了。
-2. `feed.json` 作为 Release 资产发布，`releases/latest/download/feed.json` 才会始终指向最新版本。
-3. feed 里的资产 URL 指向对应 tag 的 `releases/download/vX/<file>`，不是仓库源码。
+1. **两个仓库都要公开**。客户端没有 GitHub token，私有仓库的资产下载不了。
+2. feed 作为 Release 资产发布，名字用 `relay-feed.json`；实测叫 `feed.json` 时匿名下载会 404。
+3. feed 里的资产 URL 指向 `relay-releases` 对应 tag 的下载地址，不是源码仓库。
 
 这就是 Anvil 的发布流程与 Relay 的更新逻辑合在一起后的完整闭环。
+
+注意：从 `lab02` 改名到 `relay` 是不兼容变更——旧客户端验签的消息前缀、寻找的资产名都变了，无法跨名字更新。旧机器需要手动安装一次 `relay`，之后才能走自更新。
 
 兼容性也验证过：v0.1.7 的旧客户端不认识 `min_version` / `rollback` / `blocked`，仍能正常升级到 v0.1.8；新客户端才开始执行这些策略。
 
