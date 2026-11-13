@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_API: https://api.github.com/repos/Llikey/relay-releases
+      SOURCE_API: https://api.github.com/repos/Iris-like/relay-releases
     steps:
       - name: Read the latest release
         id: src
